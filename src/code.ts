@@ -827,7 +827,7 @@ ${
       'user-agent': PAGE_FETCH_HEADERS['user-agent']
     };
     for (const [key, value] of request.headers) {
-      if (key.startsWith('x-notion-') || key.startsWith('notion-')) headers[key] = value;
+      if (key === 'content-encoding' || key.startsWith('x-notion-') || key.startsWith('notion-')) headers[key] = value;
     }
     return headers;
   }
@@ -1001,8 +1001,11 @@ ${
       response.headers.delete('Content-Security-Policy');
       return response;
     } else if (url.pathname.startsWith('/api/')) {
-      // Rewrite request body: replace custom space domain with original Notion space domain
-      const reqBody = swapSpaceDomainInJson(await request.text(), CUSTOM_SPACE_DOMAIN, NOTION_SPACE_DOMAIN);
+      // Rewrite request body: replace custom space domain with original Notion space domain.
+      // Compressed bodies (the client's gzipped event batches) are forwarded as-is.
+      const reqBody = request.headers.has('content-encoding')
+        ? await request.arrayBuffer()
+        : swapSpaceDomainInJson(await request.text(), CUSTOM_SPACE_DOMAIN, NOTION_SPACE_DOMAIN);
       response = await fetch(url.toString(), {
         body: reqBody,
         headers: buildApiHeaders(request),
