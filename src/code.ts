@@ -934,7 +934,7 @@ ${
       return notFoundResponse(url);
     }
     // The Notion client would load the page ID from the URL, so skip the custom 404 page
-    if (await isForeignPageNavigation(request, url.pathname)) {
+    if (await isForeignPageNavigation(request, url)) {
       return notFoundResponse(url, true);
     }
     let response;
@@ -1507,11 +1507,23 @@ ${
   // check that unmapped page IDs belong to this site's workspace. Cached per isolate.
   const pageIsForeign = new Map();
 
-  async function isForeignPageNavigation(request, pathname) {
-    const match = pathname.match(/[0-9a-f]{32}/);
-    if (!match || PAGE_TO_SLUG[match[0]] !== undefined || !NOTION_SITE_DOMAIN.endsWith('.notion.site')) return false;
-    if (!isPageNavigation(request) || NON_PAGE_PATH.test(pathname)) return false;
-    const pageId = match[0];
+  async function isForeignPageNavigation(request, url) {
+    if (!NOTION_SITE_DOMAIN.endsWith('.notion.site')) return false;
+    if (!isPageNavigation(request) || NON_PAGE_PATH.test(url.pathname)) return false;
+    // The mobile client opens a database peek (?p=) as the page itself.
+    // It reads the last 32 characters; real links never repeat the parameter.
+    const peeks = url.searchParams.getAll('p');
+    if (peeks.length > 1) return true;
+    const pageIds = peeks.map((p) => p.toLowerCase().replace(/-/g, '').slice(-32));
+    const match = url.pathname.match(/[0-9a-f]{32}/);
+    if (match) pageIds.push(match[0]);
+    for (const pageId of pageIds) {
+      if (/^[0-9a-f]{32}$/.test(pageId) && PAGE_TO_SLUG[pageId] === undefined && await isForeignPage(pageId)) return true;
+    }
+    return false;
+  }
+
+  async function isForeignPage(pageId) {
     if (pageIsForeign.has(pageId)) return pageIsForeign.get(pageId);
     try {
       const response = await fetch('https://' + NOTION_SITE_DOMAIN + '/api/v3/getPublicPageData', {
